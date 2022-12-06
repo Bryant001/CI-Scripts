@@ -1,0 +1,21 @@
+.sca-scan:
+    script:
+        - export SRCCLR_SCM_NAME=$CI_PROJECT_PATH
+        - export SRCCLR_SCM_URI=$CI_PROJECT_URL
+        - export SRCCLR_SCM_REF=$(if [ "$CI_COMMIT_TAG" == "" ]; then echo $CI_COMMIT_REF_NAME; else echo $CI_COMMIT_TAG; fi);
+        - export SRCCLR_SCM_REF_TYPE=$(if [ "$CI_COMMIT_TAG" == "" ]; then echo "branch"; else echo "tag"; fi);
+        - export SRCCLR_SCM_REV=$CI_COMMIT_SHA
+        - curl -sSL https://download.sourceclear.com/ci.sh | bash -s -- scan --update-advisor
+    allow_failure: true
+        
+.sca-container-scan:
+    image: $CI_REGISTRY/verademo/dockercli-ubuntu
+    services:
+        - docker:dind
+    variables:
+        DOCKER_HOST: tcp://docker:2375
+    before_script:
+        - docker pull $CI_REGISTRY/$IMAGE_TAG
+    script:
+      - curl -sSL https://download.sourceclear.com/ci.sh | bash -s scan --image $CI_REGISTRY/$IMAGE_TAG
+    allow_failure: true
