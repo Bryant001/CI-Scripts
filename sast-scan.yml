@@ -1,0 +1,42 @@
+.sast-policy-scan:
+    image: veracode/api-wrapper-java
+    script:
+        - java -jar /opt/veracode/api-wrapper.jar -vid $VERACODE_API_KEY_ID -vkey $VERACODE_API_KEY_SECRET
+          -action uploadandscan -appname $CI_PROJECT_PATH_SLUG -filepath $VERACODE_FILEPATH
+          -createprofile true -version "commit $CI_COMMIT_SHORT_SHA pipeline $CI_PIPELINE_ID job $CI_JOB_ID"
+          -sandboxname $CI_COMMIT_REF_NAME -createsandbox true
+    allow_failure: true
+
+.sast-policy-promote:
+    image: veracode/api-wrapper-java
+    script:
+        - java -jar /opt/veracode/api-wrapper.jar -vid $VERACODE_API_KEY_ID -vkey $VERACODE_API_KEY_SECRET
+          -action uploadandscan -appname $CI_PROJECT_PATH_SLUG -filepath $VERACODE_FILEPATH
+          -createprofile true -version "commit $CI_COMMIT_SHORT_SHA pipeline $CI_PIPELINE_ID job $CI_JOB_ID"
+    allow_failure: false
+          
+.sast-pipeline-scan:
+    image: veracode/pipeline-scan
+    script:
+        - java -jar /opt/veracode/pipeline-scan.jar
+          --veracode_api_id $VERACODE_API_KEY_ID
+          --veracode_api_key $VERACODE_API_KEY_SECRET
+          --file $VERACODE_FILEPATH
+          --fail_on_severity "Very High, High"
+          --fail_on_cwe "80"
+          --gl_vulnerability_generation="true"
+          --issue_details "true"
+          --summary_output "true"
+          --project_name "${CI_PROJECT_PATH}"
+          --project_url "${CI_PROJECT_URL}"
+          --project_ref "${CI_COMMIT_REF_NAME}"
+    allow_failure: true
+    artifacts:
+        reports:
+            sast: veracode_gitlab_vulnerabilities.json
+        paths:
+            - results.json
+            - veracode_gitlab_vulnerabilities.json
+            - results.txt
+        when: always
+        name: "veracode-sast-$CI_COMMIT_REF_NAME-$CI_COMMIT_SHORT_SHA"

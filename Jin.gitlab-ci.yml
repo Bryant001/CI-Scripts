@@ -1,0 +1,101 @@
+stages:
+    - build
+    - security
+    - docker-build
+    - container-security
+
+variables:
+    MAVEN_OPTS: "-Dhttps.protocols=TLSv1.2 -Dmaven.repo.local=$CI_PROJECT_DIR/.m2/repository -Dorg.slf4j.simpleLogger.log.org.apache.maven.cli.transfer.Slf4jMavenTransferListener=WARN -Dorg.slf4j.simpleLogger.showDateTime=true -Djava.awt.headless=true"
+    MAVEN_CLI_OPTS: "--batch-mode --errors --fail-at-end --show-version -DinstallAtEnd=true -DdeployAtEnd=true"
+    IMAGE_TAG: $CI_PROJECT_PATH:$CI_COMMIT_SHORT_SHA
+    
+include:
+    - project: 'customer-success-engineering/veracode-integrations'
+      ref: master
+      file: '/sast-scan.yml'
+    - project: 'customer-success-engineering/veracode-integrations'
+      ref: master
+      file: '/sca-scan.yml'
+
+image: maven:3.6-jdk-11
+
+cache:
+    key: "$CI_JOB_NAME"
+    paths:
+        - .m2/repository
+
+maven-package:
+    stage: build
+    script:
+        - 'mvn $MAVEN_CLI_OPTS package'
+    artifacts:
+        paths:
+            - target
+    
+sca-scan:
+    stage: security
+    extends: .sca-scan
+    
+sast-pipeline-scan:
+    stage: security
+    extends: .sast-pipeline-scan
+    only:
+        - branches
+    except:
+        - main
+    variables:
+        VERACODE_FILEPATH: 'target/demo-*.war'
+    
+sast-policy-scan:
+    stage: security
+    extends: .sast-policy-scan
+    only:
+        - main
+    variables:
+        VERACODE_FILEPATH: 'target/demo-*.war'
+
+sast-policy-promote:
+    stage: security
+    extends: .sast-policy-promote
+    only:
+        - tags
+    variables:
+        VERACODE_FILEPATH: 'target/demo-*.war'
+
+.publish-to-docker:
+    stage: docker-build
+    image: docker:19.03.12
+    services:
+        - docker:19.03.12-dind
+    before_script:
+        - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    script:
+        - docker build -t $IMAGE_TAG .
+        - docker tag $IMAGE_TAG $CI_REGISTRY/$IMAGE_TAG
+        - docker push $CI_REGISTRY/$IMAGE_TAG
+
+publish-to-docker-branches:
+    extends: .publish-to-docker
+    only:
+        - branches
+
+sca-container-scan-branches:
+    stage: container-security
+    image: docker:19.03.12
+    only:
+        - branches
+    services:
+        - docker:19.03.12-dind
+    before_script:
+        - apk add curl
+        - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+        - docker pull $CI_REGISTRY/$IMAGE_TAG
+    script:
+        - curl -sSL https://download.sourceclear.com/ci.sh | sh -s scan --image $CI_REGISTRY/$IMAGE_TAG
+
+publish-to-docker-releases:
+    extends: .publish-to-docker
+    only:
+        - tags
+    variables:
+        IMAGE_TAG: $CI_PROJECT_PATH:$CI_COMMIT_TAG

@@ -1,0 +1,68 @@
+image: ricardoapjunior/curl-unzip-java-maven-git
+
+variables:
+  OUTPUT_FILE: "./app/target/verademo.war"
+  PROJECT_NAME: "Verademo Gitlab"
+
+stages:
+    - build
+    - security
+    - scan
+
+build-app:
+  stage: build
+  artifacts:
+    paths:
+      - $OUTPUT_FILE
+    expire_in: 1 day
+  script:
+    - cd app
+    - pwd
+    - mvn clean install
+    - ls -al target
+    - cd ..
+    - chmod +x $OUTPUT_FILE
+    
+pipeline-scan:
+    stage: security
+    dependencies:
+      - build-app
+    artifacts:
+        name: ${CI_PROJECT_NAME}_${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHA}_pipeline-results
+        paths:
+          - results.json
+        expire_in: 1 week
+    script:
+        - echo "Starting Pipeline Scan"
+        - curl -O https://downloads.veracode.com/securityscan/pipeline-scan-LATEST.zip
+        - unzip pipeline-scan-LATEST.zip pipeline-scan.jar
+        - java -jar pipeline-scan.jar
+          --veracode_api_id "${VERACODE_API_ID}"
+          --veracode_api_key "${VERACODE_API_SECRET}"
+          --file $OUTPUT_FILE
+          --project_name "${CI_PROJECT_PATH}"
+          --project_url "${CI_REPOSITORY_URL}"
+          --project_ref "${CI_COMMIT_REF_NAME}"
+          --gl_issue_generation true
+          --gl_vulnerability_generation true
+          --issue_details true
+          --summary_output true || true
+        - false || exit_code=$?
+        - if [ $exit_code -ne 0 ]; then echo "Pipeline scan found " + $exit_code " issues"; fi;
+
+veracode-policy-scan:
+    stage: scan
+    image: veracode/api-wrapper-java:latest
+    only:
+        - schedules
+        - master
+    script:
+        - java -jar /opt/veracode/api-wrapper.jar
+          -vid ${VERACODE_API_ID}
+          -vkey ${VERACODE_API_SECRET}
+          -action UploadAndScan
+          -appname "${CI_PROJECT_NAME}"
+          -createprofile true
+          -autoscan true
+          -filepath $OUTPUT_FILE
+          -version "job ${CI_JOB_ID} in pipeline ${CI_PIPELINE_ID}"
