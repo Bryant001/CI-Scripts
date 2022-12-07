@@ -1,4 +1,4 @@
-image: ricardoapjunior/curl-unzip-java-maven-git
+image: maven:3.6-jdk-11
 
 variables:
   MAVEN_OPTS: >-
@@ -25,6 +25,7 @@ cache:
 stages:
   - build
   - security
+  - sca_scan
   - scan
 
 build-job:
@@ -69,6 +70,18 @@ pipeline-scan:
     - false || exit_code=$?
     - if [ $exit_code -ne 0 ]; then echo "Pipeline scan found " + $exit_code " issues"; fi;
 
+sca-scan:
+  stage: sca_scan
+  script:
+      - cd app
+      - export SRCCLR_SCM_NAME=$CI_PROJECT_PATH
+      - export SRCCLR_SCM_URI=$CI_PROJECT_URL
+      - export SRCCLR_SCM_REF=$(if [ "$CI_COMMIT_TAG" == "" ]; then echo $CI_COMMIT_REF_NAME; else echo $CI_COMMIT_TAG; fi);
+      - export SRCCLR_SCM_REF_TYPE=$(if [ "$CI_COMMIT_TAG" == "" ]; then echo "branch"; else echo "tag"; fi);
+      - export SRCCLR_SCM_REV=$CI_COMMIT_SHA
+      - curl -sSL https://download.sourceclear.com/ci.sh | sh
+  allow_failure: true
+
 veracode-policy-scan:
   stage: scan
   dependencies:
@@ -86,4 +99,3 @@ veracode-policy-scan:
         -autoscan true
         -filepath app/target/*.war
         -version "job ${CI_JOB_ID} in pipeline ${CI_PIPELINE_ID}"
-
