@@ -18,18 +18,19 @@ variables:
     --file app/pom.xml
 
 cache:
-    key: "$CI_JOB_NAME"
+    key: "$CI_COMMIT_REF_SLUG"
     paths:
         - .m2/repository
 
 stages:
-  - build
-  - security
+  - maven_build
+  - pipeline
+  - pipeline_image
   - sca_scan
   - scan
 
 build-job:
-  stage: build
+  stage: maven_build
   script:
       - 'mvn $MAVEN_CLI_OPTS clean package'
       - ls -al app/target
@@ -41,9 +42,10 @@ build-job:
       expire_in: 1 week
 
 pipeline-scan:
-  stage: security
   dependencies:
     - build-job
+      
+  stage: pipeline
   artifacts:
     name: ${CI_PROJECT_NAME}_${CI_COMMIT_REF_NAME}_${CI_COMMIT_SHA}_pipeline-results
     paths:
@@ -59,30 +61,56 @@ pipeline-scan:
       --file app/target/verademo*.war
       --fail_on_severity="Very High, High"
       --fail_on_cwe="80"
+      --gl_issue_generation true
+      --gl_vulnerability_generation true
+      --issue_details true
+      --timeout "${CI_TIMEOUT}"
+      --project_name "${CI_PROJECT_PATH}"
+      --project_url "${CI_REPOSITORY_URL}"
+      --project_ref "${CI_COMMIT_REF_NAME}"
+      --summary_output true || true
+    - ls -al
+    - echo "${CI_PROJECT_PATH}" - "${CI_REPOSITORY_URL}" - "${GITLAB_URL}"
+  allow_failure: true
+
+.pipeline-docker-scan:
+  dependencies:
+    - build-job
+  stage: pipeline_image
+  image: veracode/pipeline-scan:latest
+  script:
+    - java -jar /opt/veracode/pipeline-scan.jar
+      --veracode_api_id "${VERACODE_API_ID}"
+      --veracode_api_key "${VERACODE_API_SECRET}"
+      --file app/target/verademo*.war
+      --fail_on_severity="Very High, High"
+      --fail_on_cwe="80"
       --timeout "${CI_TIMEOUT}"
       --project_name "${CI_PROJECT_PATH}"
       --project_url "${CI_REPOSITORY_URL}"
       --project_ref "${CI_COMMIT_REF_NAME}"
       --gl_issue_generation true
-      --gl_vulnerability_generation true
+      --gl_vulnerability_generation false
       --issue_details true
       --summary_output true || true
     - false || exit_code=$?
     - if [ $exit_code -ne 0 ]; then echo "Pipeline scan found " + $exit_code " issues"; fi;
 
-sca-scan:
+.sca-scan:
   stage: sca_scan
   script:
-      - cd app
+      #- cd app
       - export SRCCLR_SCM_NAME=$CI_PROJECT_PATH
       - export SRCCLR_SCM_URI=$CI_PROJECT_URL
       - export SRCCLR_SCM_REF=$(if [ "$CI_COMMIT_TAG" == "" ]; then echo $CI_COMMIT_REF_NAME; else echo $CI_COMMIT_TAG; fi);
       - export SRCCLR_SCM_REF_TYPE=$(if [ "$CI_COMMIT_TAG" == "" ]; then echo "branch"; else echo "tag"; fi);
       - export SRCCLR_SCM_REV=$CI_COMMIT_SHA
-      - curl -sSL https://download.sourceclear.com/ci.sh | sh
+      - export SRCCLR_SCM_TYPE="GITLAB"
+      - export SRCCLR_SCM_TOKEN="UX-7x37Mdwsphf_p8eZe"
+      - curl -sSL https://download.sourceclear.com/ci.sh | sh -s -- scan ./app/ --update-advisor
   allow_failure: true
 
-veracode-policy-scan:
+.veracode-policy-scan:
   stage: scan
   dependencies:
     - build-job
@@ -99,3 +127,4 @@ veracode-policy-scan:
         -autoscan true
         -filepath app/target/*.war
         -version "job ${CI_JOB_ID} in pipeline ${CI_PIPELINE_ID}"
+  allow_failure: true
