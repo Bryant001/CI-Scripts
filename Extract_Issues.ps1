@@ -1,4 +1,5 @@
-﻿# Extract the "Issues" section
+ # PowerShell script to output issues from SCA Agent scan to an XML file.
+ # Extract the "Issues" section
 iex ((New-Object System.Net.WebClient).DownloadString('https://download.srcclr.com/ci.ps1'))
 $data = $(srcclr scan "C:\Users\jbryant\OneDrive - Veracode\Documents\Code\verademo\app" | Out-String)
 $start = $data.IndexOf("Issues")
